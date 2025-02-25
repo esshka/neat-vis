@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NEAT Network Visualization</title>
+    <title>NEAT Network Visualization with Gating</title>
     <style>
         body {
             margin: 0;
@@ -48,18 +48,22 @@
 <body>
     <div id="info">
         <h2>NEAT Network Visualization</h2>
-        <p>Blue: Input nodes | Green: Hidden nodes | Red: Output nodes</p>
-        <p>Connection colors: Blue (negative) → White (zero) → Red (positive)</p>
+        <p>Node colors: Blue (Input) | Green (Hidden) | Red (Output)</p>
+        <p>Connection colors:<br>
+           - Blue to Red: Weight strength (negative to positive)<br>
+           - Yellow: Recurrent connections<br>
+           - Gray: Disabled connections
+        </p>
+        <p>Gating influences: Dashed lines from neurons to connection midpoints, colored by gating strength (blue to red)</p>
     </div>
     <div id="controls">
         <button id="resetButton">Reset View</button>
         <button id="toggleSimulation">Pause Layout</button>
     </div>
-    <!-- Use a bundled version that includes OrbitControls -->
     <script src="https://cdn.jsdelivr.net/gh/paulmasson/threejs-with-controls@r128/build/three.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
     <script>
-        // Sample NEAT network data structure with increased complexity
+        // Sample NEAT network data structure with recurrent connections and gating
         const network = {
             nodes: [
                 // Input nodes
@@ -87,11 +91,11 @@
                 { id: 19, type: 'output' }
             ],
             connections: [
-                // Input to first hidden layer
-                { source: 0, target: 6, weight: 0.8, enabled: true },
+                // Input to first hidden layer with gating
+                { source: 0, target: 6, weight: 0.8, enabled: true, gating: [{ neuron: 7, strength: 0.5 }, { neuron: 8, strength: -0.3 }] },
                 { source: 0, target: 7, weight: -0.5, enabled: true },
                 { source: 0, target: 8, weight: 0.3, enabled: true },
-                { source: 1, target: 6, weight: -0.4, enabled: true },
+                { source: 1, target: 6, weight: -0.4, enabled: true, gating: [{ neuron: 9, strength: 0.4 }] },
                 { source: 1, target: 7, weight: 0.6, enabled: true },
                 { source: 1, target: 9, weight: 0.2, enabled: true },
                 { source: 2, target: 7, weight: -0.7, enabled: true },
@@ -103,8 +107,8 @@
                 { source: 4, target: 9, weight: 0.7, enabled: true },
                 { source: 4, target: 10, weight: -0.4, enabled: true },
                 { source: 5, target: 10, weight: 0.6, enabled: true },
-                // Connections between hidden layers
-                { source: 6, target: 11, weight: 0.5, enabled: true },
+                // Connections between hidden layers with gating
+                { source: 6, target: 11, weight: 0.5, enabled: true, gating: [{ neuron: 12, strength: -0.2 }] },
                 { source: 6, target: 12, weight: -0.3, enabled: true },
                 { source: 7, target: 11, weight: 0.4, enabled: true },
                 { source: 7, target: 12, weight: 0.6, enabled: true },
@@ -115,12 +119,12 @@
                 { source: 10, target: 14, weight: 0.6, enabled: true },
                 { source: 10, target: 15, weight: -0.5, enabled: true },
                 // Recurrent connections (hidden to hidden)
-                { source: 11, target: 7, weight: 0.2, enabled: true },
-                { source: 12, target: 8, weight: -0.3, enabled: true },
-                { source: 13, target: 9, weight: 0.1, enabled: true },
-                { source: 14, target: 10, weight: -0.2, enabled: true },
-                // Hidden to output connections
-                { source: 11, target: 16, weight: 0.8, enabled: true },
+                { source: 11, target: 7, weight: 0.2, enabled: true, recurrent: true },
+                { source: 12, target: 8, weight: -0.3, enabled: true, recurrent: true },
+                { source: 13, target: 9, weight: 0.1, enabled: true, recurrent: true },
+                { source: 14, target: 10, weight: -0.2, enabled: true, recurrent: true },
+                // Hidden to output connections with gating
+                { source: 11, target: 16, weight: 0.8, enabled: true, gating: [{ neuron: 13, strength: 0.3 }] },
                 { source: 11, target: 17, weight: -0.4, enabled: true },
                 { source: 12, target: 16, weight: 0.5, enabled: true },
                 { source: 12, target: 18, weight: 0.6, enabled: true },
@@ -242,15 +246,14 @@
         function createConnectionLines() {
             // Remove previous lines if they exist
             scene.children.forEach(child => {
-                if (child.isConnectionLine) {
+                if (child.isConnectionLine || child.isGatingLine) {
                     scene.remove(child);
                 }
             });
             
-            // Find min and max weights for color mapping
+            // Find min and max weights for enabled connections
             let minWeight = Infinity;
             let maxWeight = -Infinity;
-            
             network.connections.forEach(conn => {
                 if (conn.enabled) {
                     minWeight = Math.min(minWeight, conn.weight);
@@ -258,8 +261,22 @@
                 }
             });
             
-            // Create lines for enabled connections
-            network.connections.filter(conn => conn.enabled).forEach(conn => {
+            // Find min and max gating strengths
+            let minGatingStrength = Infinity;
+            let maxGatingStrength = -Infinity;
+            network.connections.forEach(conn => {
+                if (conn.gating) {
+                    conn.gating.forEach(gate => {
+                        minGatingStrength = Math.min(minGatingStrength, gate.strength);
+                        maxGatingStrength = Math.max(maxGatingStrength, gate.strength);
+                    });
+                }
+            });
+            if (minGatingStrength === Infinity) minGatingStrength = 0;
+            if (maxGatingStrength === -Infinity) maxGatingStrength = 0;
+            
+            // Create main connection lines
+            network.connections.forEach(conn => {
                 const sourceIndex = idToIndex[conn.source];
                 const targetIndex = idToIndex[conn.target];
                 
@@ -274,31 +291,87 @@
                 
                 geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
                 
-                // Color based on weight
                 let color;
-                if (conn.weight < 0) {
-                    // Map negative weights to blue (stronger = more intense)
-                    const intensity = Math.abs(conn.weight) / Math.abs(minWeight);
-                    color = new THREE.Color(0.5 - 0.5 * intensity, 0.5 - 0.5 * intensity, 1);
-                } else if (conn.weight > 0) {
-                    // Map positive weights to red (stronger = more intense)
-                    const intensity = conn.weight / maxWeight;
-                    color = new THREE.Color(1, 0.5 - 0.5 * intensity, 0.5 - 0.5 * intensity);
+                let opacity;
+                if (!conn.enabled) {
+                    color = new THREE.Color(0x555555); // Gray for disabled
+                    opacity = 0.3;
                 } else {
-                    // Zero weight is white
-                    color = new THREE.Color(0.7, 0.7, 0.7);
+                    if (conn.recurrent) {
+                        color = new THREE.Color(0xffff00); // Yellow for recurrent
+                    } else if (conn.weight < 0) {
+                        const intensity = Math.abs(conn.weight) / Math.abs(minWeight);
+                        color = new THREE.Color(0.5 - 0.5 * intensity, 0.5 - 0.5 * intensity, 1);
+                    } else if (conn.weight > 0) {
+                        const intensity = conn.weight / maxWeight;
+                        color = new THREE.Color(1, 0.5 - 0.5 * intensity, 0.5 - 0.5 * intensity);
+                    } else {
+                        color = new THREE.Color(0x777777); // Gray for zero weight
+                    }
+                    const weightStrength = Math.abs(conn.weight) / Math.max(Math.abs(minWeight), maxWeight);
+                    opacity = 0.7 + 0.3 * weightStrength;
                 }
                 
                 const material = new THREE.LineBasicMaterial({ 
                     color: color,
                     linewidth: 2,
-                    opacity: 0.7 + 0.3 * Math.abs(conn.weight) / Math.max(Math.abs(minWeight), maxWeight),
+                    opacity: opacity,
                     transparent: true
                 });
                 
                 const line = new THREE.Line(geometry, material);
-                line.isConnectionLine = true; // Mark as connection line for later removal
+                line.isConnectionLine = true;
                 scene.add(line);
+            });
+            
+            // Create gating influence lines
+            network.connections.forEach(conn => {
+                if (conn.gating && conn.gating.length > 0) {
+                    const sourceIndex = idToIndex[conn.source];
+                    const targetIndex = idToIndex[conn.target];
+                    const sourcePos = nodePositions[sourceIndex];
+                    const targetPos = nodePositions[targetIndex];
+                    const midpoint = new THREE.Vector3().addVectors(sourcePos, targetPos).multiplyScalar(0.5);
+                    
+                    conn.gating.forEach(gate => {
+                        const gatingNeuronIndex = idToIndex[gate.neuron];
+                        const gatingPos = nodePositions[gatingNeuronIndex];
+                        
+                        const geometry = new THREE.BufferGeometry();
+                        const positions = new Float32Array([
+                            gatingPos.x, gatingPos.y, gatingPos.z,
+                            midpoint.x, midpoint.y, midpoint.z
+                        ]);
+                        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                        
+                        // Color based on gating strength
+                        let color;
+                        if (gate.strength < 0) {
+                            const intensity = minGatingStrength !== 0 ? Math.abs(gate.strength) / Math.abs(minGatingStrength) : 0;
+                            color = new THREE.Color(0.5 - 0.5 * intensity, 0.5 - 0.5 * intensity, 1);
+                        } else if (gate.strength > 0) {
+                            const intensity = maxGatingStrength !== 0 ? gate.strength / maxGatingStrength : 0;
+                            color = new THREE.Color(1, 0.5 - 0.5 * intensity, 0.5 - 0.5 * intensity);
+                        } else {
+                            color = new THREE.Color(0x777777);
+                        }
+                        
+                        const material = new THREE.LineDashedMaterial({
+                            color: color,
+                            linewidth: 1,
+                            scale: 1,
+                            dashSize: 0.1,
+                            gapSize: 0.1,
+                            opacity: 0.5,
+                            transparent: true
+                        });
+                        
+                        const line = new THREE.Line(geometry, material);
+                        line.computeLineDistances();
+                        line.isGatingLine = true;
+                        scene.add(line);
+                    });
+                }
             });
         }
         

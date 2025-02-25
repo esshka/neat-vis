@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEAT Network Visualization with Gating</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            display: block;
+        }
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+        }
+        #controls {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+        }
+        button {
+            margin: 5px;
+            padding: 5px 10px;
+            background: #333;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #555;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <h2>NEAT Network Visualization</h2>
+        <p>Node colors: Blue (Input) | Green (Hidden) | Red (Output)</p>
+        <p>Connection colors:<br>
+           - Blue to Red: Weight strength (negative to positive)<br>
+           - Yellow: Recurrent connections<br>
+           - Gray: Disabled connections
+        </p>
+        <p>Gating influences: Dashed lines from neurons to connection midpoints, colored by gating strength (blue to red)</p>
+    </div>
+    <div id="controls">
+        <button id="resetButton">Reset View</button>
+        <button id="toggleSimulation">Pause Layout</button>
+    </div>
+    <script src="https://cdn.jsdelivr.net/gh/paulmasson/threejs-with-controls@r128/build/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
+    <script>
+        // Sample NEAT network data structure with recurrent connections and gating
+        const network = {
+            nodes: [
+                // Input nodes
+                { id: 0, type: 'input' },
+                { id: 1, type: 'input' },
+                { id: 2, type: 'input' },
+                { id: 3, type: 'input' },
+                { id: 4, type: 'input' },
+                { id: 5, type: 'input' },
+                // Hidden nodes - multiple layers
+                { id: 6, type: 'hidden' },
+                { id: 7, type: 'hidden' },
+                { id: 8, type: 'hidden' },
+                { id: 9, type: 'hidden' },
+                { id: 10, type: 'hidden' },
+                { id: 11, type: 'hidden' },
+                { id: 12, type: 'hidden' },
+                { id: 13, type: 'hidden' },
+                { id: 14, type: 'hidden' },
+                { id: 15, type: 'hidden' },
+                // Output nodes
+                { id: 16, type: 'output' },
+                { id: 17, type: 'output' },
+                { id: 18, type: 'output' },
+                { id: 19, type: 'output' }
+            ],
+            connections: [
+                // Input to first hidden layer with gating
+                { source: 0, target: 6, weight: 0.8, enabled: true, gating: [{ neuron: 7, strength: 0.5 }, { neuron: 8, strength: -0.3 }] },
+                { source: 0, target: 7, weight: -0.5, enabled: true },
+                { source: 0, target: 8, weight: 0.3, enabled: true },
+                { source: 1, target: 6, weight: -0.4, enabled: true, gating: [{ neuron: 9, strength: 0.4 }] },
+                { source: 1, target: 7, weight: 0.6, enabled: true },
+                { source: 1, target: 9, weight: 0.2, enabled: true },
+                { source: 2, target: 7, weight: -0.7, enabled: true },
+                { source: 2, target: 8, weight: 0.5, enabled: true },
+                { source: 2, target: 9, weight: -0.3, enabled: true },
+                { source: 3, target: 8, weight: 0.4, enabled: true },
+                { source: 3, target: 9, weight: -0.6, enabled: true },
+                { source: 3, target: 10, weight: 0.3, enabled: true },
+                { source: 4, target: 9, weight: 0.7, enabled: true },
+                { source: 4, target: 10, weight: -0.4, enabled: true },
+                { source: 5, target: 10, weight: 0.6, enabled: true },
+                // Connections between hidden layers with gating
+                { source: 6, target: 11, weight: 0.5, enabled: true, gating: [{ neuron: 12, strength: -0.2 }] },
+                { source: 6, target: 12, weight: -0.3, enabled: true },
+                { source: 7, target: 11, weight: 0.4, enabled: true },
+                { source: 7, target: 12, weight: 0.6, enabled: true },
+                { source: 8, target: 12, weight: -0.5, enabled: true },
+                { source: 8, target: 13, weight: 0.7, enabled: true },
+                { source: 9, target: 13, weight: -0.4, enabled: true },
+                { source: 9, target: 14, weight: 0.3, enabled: true },
+                { source: 10, target: 14, weight: 0.6, enabled: true },
+                { source: 10, target: 15, weight: -0.5, enabled: true },
+                // Recurrent connections (hidden to hidden)
+                { source: 11, target: 7, weight: 0.2, enabled: true, recurrent: true },
+                { source: 12, target: 8, weight: -0.3, enabled: true, recurrent: true },
+                { source: 13, target: 9, weight: 0.1, enabled: true, recurrent: true },
+                { source: 14, target: 10, weight: -0.2, enabled: true, recurrent: true },
+                // Hidden to output connections with gating
+                { source: 11, target: 16, weight: 0.8, enabled: true, gating: [{ neuron: 13, strength: 0.3 }] },
+                { source: 11, target: 17, weight: -0.4, enabled: true },
+                { source: 12, target: 16, weight: 0.5, enabled: true },
+                { source: 12, target: 18, weight: 0.6, enabled: true },
+                { source: 13, target: 17, weight: -0.3, enabled: true },
+                { source: 13, target: 19, weight: 0.7, enabled: true },
+                { source: 14, target: 18, weight: 0.4, enabled: true },
+                { source: 14, target: 19, weight: -0.5, enabled: true },
+                { source: 15, target: 18, weight: 0.3, enabled: true },
+                { source: 15, target: 19, weight: 0.6, enabled: true },
+                // Direct input to output connections (some disabled)
+                { source: 0, target: 16, weight: 0.2, enabled: false },
+                { source: 1, target: 17, weight: -0.3, enabled: false },
+                { source: 2, target: 18, weight: 0.4, enabled: false },
+                { source: 3, target: 19, weight: 0.1, enabled: false },
+                // Some additional cross-layer connections
+                { source: 6, target: 14, weight: 0.3, enabled: true },
+                { source: 7, target: 15, weight: -0.4, enabled: true },
+                { source: 8, target: 16, weight: 0.5, enabled: true },
+                { source: 9, target: 17, weight: -0.2, enabled: true },
+                { source: 10, target: 18, weight: 0.6, enabled: true }
+            ]
+        };
+
+        // Three.js setup
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x111111);
+        
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 0, 10);
+        
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+        
+        // Add lights
+        const ambientLight = new THREE.AmbientLight(0x404040);
+        scene.add(ambientLight);
+        
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+        directionalLight.position.set(1, 1, 1).normalize();
+        scene.add(directionalLight);
+        
+        // OrbitControls for user interaction
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.25;
+        
+        // Node visualization
+        const nodeMeshes = [];
+        const nodePositions = [];
+        const velocities = [];
+        const idToIndex = {};
+        
+        // Create materials for different node types
+        const inputMaterial = new THREE.MeshPhongMaterial({ color: 0x0066ff, shininess: 100 });
+        const hiddenMaterial = new THREE.MeshPhongMaterial({ color: 0x00ff66, shininess: 100 });
+        const outputMaterial = new THREE.MeshPhongMaterial({ color: 0xff3333, shininess: 100 });
+        
+        // Common geometry for all nodes
+        const nodeGeometry = new THREE.SphereGeometry(0.2, 16, 16);
+        
+        // Calculate number of input and output nodes
+        const numInputs = network.nodes.filter(node => node.type === 'input').length;
+        const numOutputs = network.nodes.filter(node => node.type === 'output').length;
+        const numHidden = network.nodes.length - numInputs - numOutputs;
+        
+        // Initialize counters for input and output nodes
+        let inputCounter = 0;
+        let outputCounter = 0;
+        const spacing = 1.0; // Spacing between nodes
+        
+        // Create node meshes with fixed positions for input and output nodes
+        network.nodes.forEach((node, index) => {
+            idToIndex[node.id] = index;
+            
+            let material;
+            if (node.type === 'input') {
+                material = inputMaterial;
+            } else if (node.type === 'hidden') {
+                material = hiddenMaterial;
+            } else { // output
+                material = outputMaterial;
+            }
+            
+            const mesh = new THREE.Mesh(nodeGeometry, material);
+            
+            let pos;
+            if (node.type === 'input') {
+                pos = new THREE.Vector3(
+                    -5,
+                    (inputCounter - (numInputs - 1) / 2) * spacing,
+                    0
+                );
+                inputCounter++;
+            } else if (node.type === 'output') {
+                pos = new THREE.Vector3(
+                    5,
+                    (outputCounter - (numOutputs - 1) / 2) * spacing,
+                    0
+                );
+                outputCounter++;
+            } else {
+                pos = new THREE.Vector3(
+                    (Math.random() - 0.5) * 6,
+                    (Math.random() - 0.5) * 6,
+                    (Math.random() - 0.5) * 6
+                );
+            }
+            
+            mesh.position.copy(pos);
+            scene.add(mesh);
+            
+            nodeMeshes.push(mesh);
+            nodePositions.push(pos);
+            velocities.push(new THREE.Vector3(0, 0, 0));
+        });
+        
+        // Connection visualization
+        function createConnectionLines() {
+            // Remove previous lines if they exist
+            scene.children.forEach(child => {
+                if (child.isConnectionLine || child.isGatingLine) {
+                    scene.remove(child);
+                }
+            });
+            
+            // Find min and max weights for enabled connections
+            let minWeight = Infinity;
+            let maxWeight = -Infinity;
+            network.connections.forEach(conn => {
+                if (conn.enabled) {
+                    minWeight = Math.min(minWeight, conn.weight);
+                    maxWeight = Math.max(maxWeight, conn.weight);
+                }
+            });
+            
+            // Find min and max gating strengths
+            let minGatingStrength = Infinity;
+            let maxGatingStrength = -Infinity;
+            network.connections.forEach(conn => {
+                if (conn.gating) {
+                    conn.gating.forEach(gate => {
+                        minGatingStrength = Math.min(minGatingStrength, gate.strength);
+                        maxGatingStrength = Math.max(maxGatingStrength, gate.strength);
+                    });
+                }
+            });
+            if (minGatingStrength === Infinity) minGatingStrength = 0;
+            if (maxGatingStrength === -Infinity) maxGatingStrength = 0;
+            
+            // Create main connection lines
+            network.connections.forEach(conn => {
+                const sourceIndex = idToIndex[conn.source];
+                const targetIndex = idToIndex[conn.target];
+                
+                const sourcePos = nodePositions[sourceIndex];
+                const targetPos = nodePositions[targetIndex];
+                
+                const geometry = new THREE.BufferGeometry();
+                const positions = new Float32Array([
+                    sourcePos.x, sourcePos.y, sourcePos.z,
+                    targetPos.x, targetPos.y, targetPos.z
+                ]);
+                
+                geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                
+                let color;
+                let opacity;
+                if (!conn.enabled) {
+                    color = new THREE.Color(0x555555); // Gray for disabled
+                    opacity = 0.3;
+                } else {
+                    if (conn.recurrent) {
+                        color = new THREE.Color(0xffff00); // Yellow for recurrent
+                    } else if (conn.weight < 0) {
+                        const intensity = Math.abs(conn.weight) / Math.abs(minWeight);
+                        color = new THREE.Color(0.5 - 0.5 * intensity, 0.5 - 0.5 * intensity, 1);
+                    } else if (conn.weight > 0) {
+                        const intensity = conn.weight / maxWeight;
+                        color = new THREE.Color(1, 0.5 - 0.5 * intensity, 0.5 - 0.5 * intensity);
+                    } else {
+                        color = new THREE.Color(0x777777); // Gray for zero weight
+                    }
+                    const weightStrength = Math.abs(conn.weight) / Math.max(Math.abs(minWeight), maxWeight);
+                    opacity = 0.7 + 0.3 * weightStrength;
+                }
+                
+                const material = new THREE.LineBasicMaterial({ 
+                    color: color,
+                    linewidth: 2,
+                    opacity: opacity,
+                    transparent: true
+                });
+                
+                const line = new THREE.Line(geometry, material);
+                line.isConnectionLine = true;
+                scene.add(line);
+            });
+            
+            // Create gating influence lines
+            network.connections.forEach(conn => {
+                if (conn.gating && conn.gating.length > 0) {
+                    const sourceIndex = idToIndex[conn.source];
+                    const targetIndex = idToIndex[conn.target];
+                    const sourcePos = nodePositions[sourceIndex];
+                    const targetPos = nodePositions[targetIndex];
+                    const midpoint = new THREE.Vector3().addVectors(sourcePos, targetPos).multiplyScalar(0.5);
+                    
+                    conn.gating.forEach(gate => {
+                        const gatingNeuronIndex = idToIndex[gate.neuron];
+                        const gatingPos = nodePositions[gatingNeuronIndex];
+                        
+                        const geometry = new THREE.BufferGeometry();
+                        const positions = new Float32Array([
+                            gatingPos.x, gatingPos.y, gatingPos.z,
+                            midpoint.x, midpoint.y, midpoint.z
+                        ]);
+                        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                        
+                        // Color based on gating strength
+                        let color;
+                        if (gate.strength < 0) {
+                            const intensity = minGatingStrength !== 0 ? Math.abs(gate.strength) / Math.abs(minGatingStrength) : 0;
+                            color = new THREE.Color(0.5 - 0.5 * intensity, 0.5 - 0.5 * intensity, 1);
+                        } else if (gate.strength > 0) {
+                            const intensity = maxGatingStrength !== 0 ? gate.strength / maxGatingStrength : 0;
+                            color = new THREE.Color(1, 0.5 - 0.5 * intensity, 0.5 - 0.5 * intensity);
+                        } else {
+                            color = new THREE.Color(0x777777);
+                        }
+                        
+                        const material = new THREE.LineDashedMaterial({
+                            color: color,
+                            linewidth: 1,
+                            scale: 1,
+                            dashSize: 0.1,
+                            gapSize: 0.1,
+                            opacity: 0.5,
+                            transparent: true
+                        });
+                        
+                        const line = new THREE.Line(geometry, material);
+                        line.computeLineDistances();
+                        line.isGatingLine = true;
+                        scene.add(line);
+                    });
+                }
+            });
+        }
+        
+        // Force-directed layout
+        const params = {
+            repulsionStrength: 1.0,
+            attractionStrength: 0.03,
+            damping: 0.85,
+            timeStep: 0.1,
+            stabilizationThreshold: 0.01
+        };
+        
+        let simulating = true;
+        
+        function updateForces() {
+            if (!simulating) return;
+            
+            // Reset forces
+            const forces = Array(network.nodes.length).fill().map(() => new THREE.Vector3());
+            
+            // Repulsion between all nodes
+            for (let i = 0; i < network.nodes.length; i++) {
+                for (let j = i + 1; j < network.nodes.length; j++) {
+                    const posI = nodePositions[i];
+                    const posJ = nodePositions[j];
+                    
+                    const direction = new THREE.Vector3().subVectors(posI, posJ);
+                    const distance = direction.length();
+                    
+                    if (distance > 0.1) { // Avoid division by zero or very small numbers
+                        const repulsionForce = params.repulsionStrength / (distance * distance);
+                        direction.normalize().multiplyScalar(repulsionForce);
+                        
+                        forces[i].add(direction);
+                        forces[j].sub(direction);
+                    }
+                }
+            }
+            
+            // Attraction along connections
+            network.connections.forEach(conn => {
+                if (conn.enabled) {
+                    const sourceIndex = idToIndex[conn.source];
+                    const targetIndex = idToIndex[conn.target];
+                    
+                    const posSource = nodePositions[sourceIndex];
+                    const posTarget = nodePositions[targetIndex];
+                    
+                    const direction = new THREE.Vector3().subVectors(posTarget, posSource);
+                    const distance = direction.length();
+                    
+                    direction.normalize().multiplyScalar(params.attractionStrength * distance);
+                    
+                    forces[sourceIndex].add(direction);
+                    forces[targetIndex].sub(direction);
+                }
+            });
+            
+            // Update velocities and positions only for hidden nodes
+            let totalVelocity = 0;
+            
+            for (let i = 0; i < network.nodes.length; i++) {
+                if (network.nodes[i].type === 'hidden') {
+                    velocities[i].add(forces[i]);
+                    velocities[i].multiplyScalar(params.damping);
+                    
+                    nodePositions[i].add(velocities[i].clone().multiplyScalar(params.timeStep));
+                    nodeMeshes[i].position.copy(nodePositions[i]);
+                    
+                    totalVelocity += velocities[i].length();
+                }
+            }
+            
+            // Check for stabilization
+            if (totalVelocity < params.stabilizationThreshold * numHidden) {
+                console.log("Layout stabilized");
+                simulating = false;
+                document.getElementById('toggleSimulation').textContent = 'Resume Layout';
+            }
+            
+            // Update connection lines
+            createConnectionLines();
+        }
+        
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            updateForces();
+            
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        
+        // Reset view button
+        document.getElementById('resetButton').addEventListener('click', () => {
+            camera.position.set(0, 0, 10);
+            controls.reset();
+        });
+        
+        // Toggle simulation button
+        document.getElementById('toggleSimulation').addEventListener('click', () => {
+            simulating = !simulating;
+            document.getElementById('toggleSimulation').textContent = 
+                simulating ? 'Pause Layout' : 'Resume Layout';
+        });
+        
+        // Initialize connection lines
+        createConnectionLines();
+        
+        // Start animation
+        animate();
+    </script>
+</body>
+</html>
